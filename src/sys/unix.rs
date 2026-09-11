@@ -79,6 +79,14 @@ pub(crate) use std::ffi::c_int;
 #[cfg(not(target_os = "wasi"))]
 pub(crate) use libc::AF_UNIX;
 pub(crate) use libc::{AF_INET, AF_INET6};
+
+#[cfg(all(
+    feature = "all",
+    any(target_arch = "x86_64", target_arch = "s390x"),
+    target_env = "gnu"
+))]
+pub(crate) use libc::AF_IUCV;
+
 // Used in `Type`.
 #[cfg(all(feature = "all", target_os = "linux"))]
 pub(crate) use libc::SOCK_DCCP;
@@ -763,6 +771,51 @@ pub(crate) fn unix_sockaddr(path: &Path) -> io::Result<SockAddr> {
             }
     };
     Ok(unsafe { SockAddr::new(storage, len as socklen_t) })
+}
+
+#[cfg(all(
+    feature = "all",
+    any(target_arch = "x86_64", target_arch = "s390x"),
+    target_env = "gnu"
+))]
+fn copy_and_pad_with_spaces(src: &str, target: &mut [libc::c_char; 8]) -> io::Result<()> {
+    let bytes = src.as_bytes();
+    if bytes.len() > target.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "IUCV address component is too long",
+        ));
+    }
+    let mut bytes_iter = bytes.iter();
+    for c in target {
+        if let Some(b) = bytes_iter.next() {
+            *c = *b as libc::c_char;
+        } else {
+            *c = b' ' as libc::c_char;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "all",
+    any(target_arch = "x86_64", target_arch = "s390x"),
+    target_env = "gnu"
+))]
+pub(crate) fn iucv_sockaddr(userid: &str, name: &str) -> io::Result<SockAddr> {
+    let mut storage = SockAddrStorage::zeroed();
+    {
+        // SAFETY: sockaddr_iucv is one of the sockaddr_* types defined by this platform.
+        let storage = unsafe { storage.view_as::<libc::sockaddr_iucv>() };
+
+        storage.siucv_family = libc::AF_IUCV as sa_family_t;
+        // Note that storage.siucv_port is initialized to zero above, which is required for the reserved field
+        // Note that storage.siucv_addr is initialized to zero above, which is required for the reserved field
+        storage.siucv_nodeid = [b' ' as libc::c_char; 8]; // Required for the reserved field
+        copy_and_pad_with_spaces(userid, &mut storage.siucv_user_id)?;
+        copy_and_pad_with_spaces(name, &mut storage.siucv_name)?;
+    }
+    Ok(unsafe { SockAddr::new(storage, mem::size_of::<libc::sockaddr_iucv>() as socklen_t) })
 }
 
 // Used in `MsgHdr`.

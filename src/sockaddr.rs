@@ -223,6 +223,19 @@ impl SockAddr {
         crate::sys::unix_sockaddr(path.as_ref())
     }
 
+    /// Constructs a `SockAddr` with the family `AF_IUCV` and the provided
+    /// components.
+    ///
+    /// Returns an error if the path is too long.
+    #[cfg(all(
+        feature = "all",
+        any(target_arch = "x86_64", target_arch = "s390x"),
+        target_env = "gnu"
+    ))]
+    pub fn iucv(userid: &str, name: &str) -> io::Result<SockAddr> {
+        crate::sys::iucv_sockaddr(userid, name)
+    }
+
     /// Set the length of the address.
     ///
     /// # Safety
@@ -276,6 +289,16 @@ impl SockAddr {
     #[cfg(not(target_os = "wasi"))]
     pub fn is_unix(&self) -> bool {
         self.storage.ss_family == AF_UNIX as sa_family_t
+    }
+
+    /// Returns true if this address is of an IUCV socket, false otherwise
+    #[cfg(all(
+        feature = "all",
+        any(target_arch = "x86_64", target_arch = "s390x"),
+        target_env = "gnu"
+    ))]
+    pub const fn is_iucv(&self) -> bool {
+        self.storage.ss_family == libc::AF_IUCV as sa_family_t
     }
 
     /// Returns this address as a `SocketAddr` if it is in the `AF_INET` (IPv4)
